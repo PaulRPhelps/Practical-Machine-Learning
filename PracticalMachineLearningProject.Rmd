@@ -1,0 +1,161 @@
+---
+title: "Practical Machine Learning Project"
+author: "Paul R Phelps"
+date: "August 20, 2015"
+output: html_document
+---
+
+## Executive Summary
+
+This project develops a machine learning model that predicts the manner in which a participant performed a barbell lift.        
+This is in response to the situation whereby people who exercise often regularly quantify how much of a particular activity they do, but they rarely quantify how well they do it. Enthusiasts can now take measurements about themselves regularly to improve their health or to find patterns in their behaviour. A whole range of devices, such as Jawbone Up, Nike FuelBand, and Fitbit, are available to collect data about personal activity relatively inexpensively.      
+The data comes from six participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The "classe" variable in the dataset identifies the method adopted for a particular trial. Data was collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
+The model developed from the training dataset was used to predict the barbell lift method employed in twenty test cases.      
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Establish the analytics environment.
+
+Load the libraries required by the analysis and set the seed to facilitate analysis reproducibility.
+```{r warning=FALSE, message=FALSE}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+set.seed(4567)
+setInternet2(TRUE)
+```
+
+## Data Loading and Cleansing
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+The training data for this project is sourced from: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csvD
+
+### Missing Data Values
+
+Examination of this dataset shows that variables are not always populated and may include spreadsheet style "division by zero" errors. These observations will be replaces by "Not Available" indicators during data load.
+```{r}
+NA.Strings <- c("", "#DIV/0!","NA")
+```
+
+### Load the Datasets
+
+Two datasets are loaded. One containing data used to "train" and "test" the prediction model. The other contains the twenty cases against which the model will deterine the outcome (barbell lift method)
+
+Read in the Input and Prediction datasets.
+
+```{r}
+URL.Data <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+URL.Predict <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+Raw.Data <- read.csv(url(URL.Data), header=TRUE, na.strings=NA.Strings)
+Predict.Data <- read.csv(URL.Predict)
+```
+The "Input" dataset has `r ncol(Raw.Data)` variables and `r nrow(Raw.Data)` observations.
+The "Prediction" dataset has `r ncol(Predict.Data)` variables and `r nrow(Predict.Data)` observations.
+
+### Non-Measurement Data Variables
+
+The first seven columns of the "input" dataset refer to non-measurement variables (`r colnames(Raw.Data)[1:7]`). The first variable identifies or indexes each row or observation. The other six variables supply metadata about when the observation was collected. These variables serve no purpose in model creation and will be removed. Only variables relating to accelerometer measurements are useful. 
+The prediction variable "classe" will be converted into a factor variable.
+
+```{r}
+Clean.Data <- Raw.Data[c(-1:-7)]
+Clean.Data$classe <- factor(Clean.Data$classe)
+```
+The "Input" dataset now has `r ncol(Clean.Data)` variables and `r nrow(Clean.Data)` observations.
+
+### Data Partitioning
+
+The "Input" dataset is partitioned into "Training" and "Testing" partitions based on a 60% / 40% split.
+
+```{r}
+inTrain.Data <- createDataPartition(Clean.Data$classe, p=0.60, list=FALSE)
+Train.Data <- Clean.Data[inTrain.Data,]
+Test.Data <- Clean.Data[-inTrain.Data,]
+```
+The "Training" dataset has `r ncol(Train.Data)` variables and `r nrow(Train.Data)` observations.
+The "Testing" dataset has `r ncol(Test.Data)` variables and `r nrow(Test.Data)` observations.
+
+### Removing Sparsely Populated Variables
+
+Before the model is built, the variables are examined to identify those that are sparsely populated and so may not have influence in the model. Variables that have a fill factor of 30% or less are removed from the "Training" dataset.
+
+```{r}
+Null_Observation_Counter <- apply(Train.Data, 2, function(x) length(which(is.na(x) ))/length(x))
+Non_Null_Variables <- colnames(Train.Data)[Null_Observation_Counter <= 0.3]
+Train.Data <- Train.Data[Non_Null_Variables]
+```
+The "Training" dataset now has `r ncol(Train.Data)` variables and `r nrow(Train.Data)` observations.
+
+## Modeling
+
+The Random Forests technique is used to construct the prediction model.
+
+```{r}
+Train.Control <- trainControl(allowParallel=TRUE, method="CV", number=4 )
+Model.Fit <- train(classe ~ ., data=Train.Data, method="rf", trControl=Train.Control)
+print(Model.Fit)
+```
+
+The accuracy of the model is estimated to be 98.78%. 
+
+## Model Evaluation
+
+The model is evaluated by passing the "Test" dataset to it, in order to predict the barbell lift method. A confusion matrix is produced to view the match between actual and predicted values of this variable.    
+No data transformation was done to the "Test" dataset as modifications to the "Training" dataset removed variables and did not modify any values. 
+
+```{r}
+confusionMatrix(predict(Model.Fit,newdata=Test.Data),Test.Data$classe)
+```
+The evaluation of the model using the "Test" dataset is estimated to be 99.15%. This is better than that specified by the model development.             
+
+The following table lists the top twenty most important variables in the model.
+```{r}
+varImp(Model.Fit)
+```
+
+
+## Out Of Sample Error Rate
+
+In sample Error Rate is 1.2% (1 - 0.9878 = 0.012 * 100).
+
+The estimate of the Out Of Sample Error is calculated as follows: 
+```{r}
+Model.Predictions <- predict(Model.Fit, Test.Data)
+
+# True Accuracy of the Predicted Model
+OOSE.Accuracy <- sum(Model.Predictions == Test.Data$classe)/length(Model.Predictions)
+
+# Out of Sample Error percentage
+OOSE <- 1 - OOSE.Accuracy
+```
+
+The estimate of the Out of Sample Error is : `r round(OOSE * 100, digits = 2)`%
+
+ 
+## Predictions
+ 
+ Take the set of twenty cases and pass then through the prediction model.
+ 
+```{r}
+Predict.Results <- predict(Model.Fit, newdata=Predict.Data)
+print(Predict.Results)
+```
+
+Create a set of files containing the answer to each question for the Assigment Submission section of the project.
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(Predict.Results)
+```
+
+
+ 
